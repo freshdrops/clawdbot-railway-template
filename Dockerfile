@@ -33,10 +33,12 @@ RUN set -eux; \
     sed -i -E 's/"openclaw"[[:space:]]*:[[:space:]]*"workspace:[^"]+"/"openclaw": "*"/g' "$f"; \
   done
 
-RUN pnpm install --no-frozen-lockfile
+# Disable pnpm's minimumReleaseAge gate; openclaw extensions (e.g. tokenjuice)
+# sometimes depend on packages published <24h ago which would otherwise be blocked.
+RUN pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
 RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
-RUN pnpm ui:install && pnpm ui:build
+RUN pnpm ui:install --config.minimumReleaseAge=0 && pnpm ui:build
 
 
 # Runtime image
