@@ -1355,10 +1355,13 @@ function requireDashboardAuth(req, res, next) {
 // The gateway is only reachable from this container. The Control UI in the browser
 // cannot set custom Authorization headers for WebSocket connections, so we inject
 // the token into proxied requests at the wrapper level.
+//
+// Must overwrite any existing Authorization header: once dashboard auth has been
+// validated, the browser's `Basic <SETUP_PASSWORD>` header would otherwise leak to
+// the gateway and be rejected as a token mismatch.
 function attachGatewayAuthHeader(req) {
-  if (!req?.headers?.authorization && OPENCLAW_GATEWAY_TOKEN) {
-    req.headers.authorization = `Bearer ${OPENCLAW_GATEWAY_TOKEN}`;
-  }
+  if (!req?.headers || !OPENCLAW_GATEWAY_TOKEN) return;
+  req.headers.authorization = `Bearer ${OPENCLAW_GATEWAY_TOKEN}`;
 }
 
 proxy.on("proxyReqWs", (_proxyReq, req) => {
