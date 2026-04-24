@@ -1368,10 +1368,68 @@ proxy.on("proxyReqWs", (_proxyReq, req) => {
   attachGatewayAuthHeader(req);
 });
 
+// --- Control UI bootstrap ---
+// openclaw >= v2026.4.24 changed the Control UI so the gateway token is read from
+// localStorage["openclaw.control.settings.v1"].token and sent inside the WS
+// handshake message payload, not as an HTTP Authorization header. The wrapper's
+// proxy-level Authorization injection is therefore invisible to the new auth
+// path, and the gateway replies with reason=token_missing — surfacing as a
+// second Basic auth prompt / "paste token in Control UI settings" error.
+//
+// Before the Control UI loads for the first time in a browser, serve a small
+// bootstrap HTML that writes the known gateway token into localStorage. Gated by
+// a cookie so it only runs once, and only served after requireDashboardAuth so
+// the token never leaves the authenticated dashboard trust boundary.
+const BOOTSTRAP_COOKIE = "oc_wrapper_bootstrapped";
+const CONTROL_UI_SETTINGS_KEY = "openclaw.control.settings.v1";
+
+function needsControlUiBootstrap(req) {
+  if (!OPENCLAW_GATEWAY_TOKEN) return false;
+  if (req.method !== "GET") return false;
+  if (req.path !== "/") return false;
+  const accept = String(req.headers.accept || "");
+  if (!accept.includes("text/html")) return false;
+  const cookie = String(req.headers.cookie || "");
+  return !cookie.split(";").some((c) => c.trim().startsWith(`${BOOTSTRAP_COOKIE}=`));
+}
+
+function sendControlUiBootstrap(res) {
+  const tokenJson = JSON.stringify(OPENCLAW_GATEWAY_TOKEN);
+  const keyJson = JSON.stringify(CONTROL_UI_SETTINGS_KEY);
+  // Token lands in client-side localStorage; this response is only reachable after
+  // requireDashboardAuth has validated SETUP_PASSWORD.
+  const html = `<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Loading Control UI…</title></head>
+<body>
+<script>
+(function () {
+  try {
+    var key = ${keyJson};
+    var current = {};
+    try { current = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (_) {}
+    if (!current.token) current.token = ${tokenJson};
+    localStorage.setItem(key, JSON.stringify(current));
+  } catch (_) {}
+  document.cookie = "${BOOTSTRAP_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Strict; Secure";
+  location.replace("/");
+})();
+</script>
+</body>
+</html>
+`;
+  res.set("Cache-Control", "no-store");
+  res.status(200).type("html").send(html);
+}
+
 app.use(requireDashboardAuth, async (req, res) => {
   // If not configured, force users to /setup for any non-setup routes.
   if (!isConfigured() && !req.path.startsWith("/setup")) {
     return res.redirect("/setup");
+  }
+
+  if (isConfigured() && needsControlUiBootstrap(req)) {
+    return sendControlUiBootstrap(res);
   }
 
   if (isConfigured()) {
