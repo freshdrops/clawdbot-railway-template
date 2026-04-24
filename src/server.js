@@ -1331,21 +1331,37 @@ proxy.on("error", (err, _req, res) => {
 // --- Dashboard password protection ---
 // Require the same SETUP_PASSWORD for the entire Control UI dashboard,
 // not just the /setup routes.  Healthcheck is excluded so Railway probes work.
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 function requireDashboardAuth(req, res, next) {
   if (req.path === "/healthz" || req.path === "/setup/healthz") return next();
   if (req.path.startsWith("/hooks")) return next(); // allow OpenClaw webhook endpoints to bypass dashboard auth
   if (!SETUP_PASSWORD) return next(); // no password configured → open
   const header = req.headers.authorization || "";
   const [scheme, encoded] = header.split(" ");
+
+  // Accept `Authorization: Bearer <GATEWAY_TOKEN>` as an equivalent credential so
+  // API clients / CLIs that already hold the gateway token aren't forced through
+  // the browser Basic prompt. The Bearer header then passes through to the
+  // gateway unchanged — it's the exact credential the gateway expects.
+  if (scheme === "Bearer" && encoded && OPENCLAW_GATEWAY_TOKEN && safeEqual(encoded, OPENCLAW_GATEWAY_TOKEN)) {
+    return next();
+  }
+
   if (scheme !== "Basic" || !encoded) {
-    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Dashboard"');
+    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Dashboard", Bearer realm="OpenClaw Gateway"');
     return res.status(401).send("Auth required");
   }
   const decoded = Buffer.from(encoded, "base64").toString("utf8");
   const idx = decoded.indexOf(":");
   const password = idx >= 0 ? decoded.slice(idx + 1) : "";
   if (password !== SETUP_PASSWORD) {
-    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Dashboard"');
+    res.set("WWW-Authenticate", 'Basic realm="OpenClaw Dashboard", Bearer realm="OpenClaw Gateway"');
     return res.status(401).send("Invalid password");
   }
   return next();
