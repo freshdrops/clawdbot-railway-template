@@ -116,3 +116,52 @@ metadata:
 type: Opaque
 stringData:
   secret-key: "2467017c7f4eedfb7149456be00506d9321489e07a66efc82ee67dde7637c2d4"
+---
+# ──────────────────────────────────────────────────
+#  NETWORKPOLICY (allow agents → searxng on 8080)
+# ──────────────────────────────────────────────────
+# Required because default-deny blocks all ingress in this namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agents-to-searxng
+  namespace: acme-openclaw
+spec:
+  podSelector:
+    matchLabels:
+      app: searxng
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: acme-openclaw
+    ports:
+    - port: 8080
+      protocol: TCP
+---
+# ──────────────────────────────────────────────────
+#  NETWORKPOLICY (allow agents egress → searxng)
+# ──────────────────────────────────────────────────
+# Required because allow-internet-only explicitly excludes 10.0.0.0/8
+# (the cluster pod CIDR), blocking agents from reaching internal services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agents-egress-to-searxng
+  namespace: acme-openclaw
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: acme-openclaw
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: searxng
+    ports:
+    - port: 8080
+      protocol: TCP
