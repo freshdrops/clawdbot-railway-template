@@ -1,0 +1,118 @@
+---
+# SearXNG — Self-hosted metasearch instance
+# Deployed to Hetzner (alreadysites-us) in acme-openclaw namespace
+#
+# Deploy:
+#   kubectl --context alreadysites-us apply -f k8s/searxng.yaml
+#
+# Service DNS: searxng.acme-openclaw.svc.cluster.local:8080
+# All agents reach it via the K8s internal DNS.
+# ──────────────────────────────────────────────────
+#  NAMESPACE (if not already created)
+# ──────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: acme-openclaw
+---
+# ──────────────────────────────────────────────────
+#  DEPLOYMENT
+# ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: acme-openclaw
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+      - name: searxng
+        image: searxng/searxng:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SEARXNG_HOST
+          value: "0.0.0.0"
+        - name: SEARXNG_PORT
+          value: "8080"
+        - name: SEARXNG_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: searxng-secret
+              key: secret-key
+        resources:
+          requests:
+            cpu: 50m
+            memory: 40Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          failureThreshold: 5
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 5
+          timeoutSeconds: 5
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+# ──────────────────────────────────────────────────
+#  SERVICE (ClusterIP — internal only, no ingress)
+# ──────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: acme-openclaw
+spec:
+  selector:
+    app: searxng
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+---
+# ──────────────────────────────────────────────────
+#  SECRET
+# ──────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: searxng-secret
+  namespace: acme-openclaw
+type: Opaque
+stringData:
+  secret-key: "2467017c7f4eedfb7149456be00506d9321489e07a66efc82ee67dde7637c2d4"
