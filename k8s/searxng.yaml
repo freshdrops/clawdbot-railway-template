@@ -16,6 +16,22 @@ metadata:
   name: acme-openclaw
 ---
 # ──────────────────────────────────────────────────
+#  CONFIGMAP (enable JSON output format)
+# ──────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: acme-openclaw
+data:
+  settings.yml: |
+    use_default_settings: true
+    search:
+      formats:
+        - html
+        - json
+---
+# ──────────────────────────────────────────────────
 #  DEPLOYMENT
 # ──────────────────────────────────────────────────
 apiVersion: apps/v1
@@ -52,6 +68,10 @@ spec:
             secretKeyRef:
               name: searxng-secret
               key: secret-key
+        volumeMounts:
+        - name: searxng-settings
+          mountPath: /etc/searxng/settings.yml
+          subPath: settings.yml
         resources:
           requests:
             cpu: 50m
@@ -88,6 +108,10 @@ spec:
           limits:
             cpu: 500m
             memory: 256Mi
+      volumes:
+      - name: searxng-settings
+        configMap:
+          name: searxng-settings
 ---
 # ──────────────────────────────────────────────────
 #  SERVICE (ClusterIP — internal only, no ingress)
